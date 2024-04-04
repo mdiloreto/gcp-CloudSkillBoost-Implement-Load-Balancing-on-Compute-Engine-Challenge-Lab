@@ -2,7 +2,7 @@
 gcloud config set compute/region us-central1
 gcloud config set compute/zone us-central1-f
 
-# Create the jumphost instance
+# Create the jumphost instance  >>>>>> USE THE INSTANCE NAME IN THE TUTORIAL <<<<<<
 gcloud compute instances create nucleus-jumphost-667 \
   --zone=us-central1-f \
   --machine-type=e2-micro \
