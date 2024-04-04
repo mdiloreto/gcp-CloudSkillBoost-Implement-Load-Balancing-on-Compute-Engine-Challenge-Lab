@@ -1,0 +1,76 @@
+# Set default region and zone
+gcloud config set compute/region us-central1
+gcloud config set compute/zone us-central1-f
+
+# Create the jumphost instance
+gcloud compute instances create nucleus-jumphost-667 \
+  --zone=us-central1-f \
+  --machine-type=e2-micro \
+  --image-family=debian-11 \
+  --image-project=debian-cloud
+
+# Create an instance template for Nginx web servers
+cat << EOF > startup.sh
+#! /bin/bash
+apt-get update
+apt-get install -y nginx
+service nginx start
+sed -i -- 's/nginx/Google Cloud Platform - '\$HOSTNAME'/' /var/www/html/index.nginx-debian.html
+EOF
+
+# Create MIG Template
+gcloud compute instance-templates create nginx-template \
+  --machine-type=e2-medium \
+  --metadata-from-file startup-script=startup.sh \
+  --image-family=debian-11 \
+  --image-project=debian-cloud \
+  --tags=http-server
+
+# Create a MIG
+gcloud compute instance-groups managed create nginx-group \
+  --base-instance-name=nginx \
+  --template=nginx-template \
+  --size=2 \
+  --zone=us-central1-f
+
+# Define a named port MIG
+gcloud compute instance-groups managed set-named-ports nginx-group \
+  --named-ports http:80 \
+  --zone=us-central1-f
+
+# Create a firewall rule to allow HTTP traffic >>>>>> USE THE RULE NAME IN THE TUTORIAL <<<<<<
+gcloud compute firewall-rules create allow-http \
+  --network=default \
+  --allow=tcp:80 \
+  --target-tags=http-server
+
+# Create a health check
+gcloud compute health-checks create http http-basic-check \
+  --port=80
+
+# Create a backend service
+gcloud compute backend-services create nginx-backend \
+  --protocol=HTTP \
+  --port-name=http \
+  --health-checks=http-basic-check \
+  --global
+
+# Add the instance group to the backend service
+gcloud compute backend-services add-backend nginx-backend \
+  --instance-group=nginx-group \
+  --instance-group-zone=us-central1-f \
+  --global
+
+# Create a URL map
+gcloud compute url-maps create web-map-http \
+  --default-service nginx-backend
+
+# Create a target HTTP proxy
+gcloud compute target-http-proxies create http-lb-proxy \
+  --url-map=web-map-http
+
+# Create a global forwarding rule
+gcloud compute forwarding-rules create http-content-rule \
+  --global \
+  --target-http-proxy=http-lb-proxy \
+  --ports=80
